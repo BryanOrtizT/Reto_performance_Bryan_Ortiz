@@ -1,0 +1,114 @@
+EJERCICIO 1 - HALLAZGOS Y CONCLUSIONES
+=======================================
+
+Prueba: carga del servicio POST https://fakestoreapi.com/auth/login
+Herramienta: k6 v2.3.0
+Escenario: ramping-arrival-rate, 25 TPS objetivo en estado estable, 3 min 30 s
+Evidencia: reports/textSummary.txt, reports/summary.json, reports/dashboard.html
+
+
+1. RESULTADOS
+-------------
+  Metrica                          Resultado               Criterio
+  -------------------------------  ----------------------  ----------------
+  Peticiones totales               4 124                   -
+  Tasa de error (http_req_failed)  0,00 % (0 de 4 124)     < 3 %     CUMPLE
+  Checks (status 201 + token)      100 % (8 248 de 8 248)  > 97 %    CUMPLE
+  Tiempo de respuesta p95          506 ms                  < 1 500 ms CUMPLE
+  Tiempo de respuesta maximo       1,10 s                  <= 1,5 s  CUMPLE
+  Tiempo de respuesta promedio     380 ms                  -
+  Tiempo de respuesta mediana      358 ms                  -
+  Tiempo de respuesta p99          698 ms                  -
+  Tiempo de respuesta minimo       317 ms                  -
+  TPS medio de toda la prueba      19,64 req/s             ver seccion 2
+  VUs usados (maximo)              23 de 60 preasignados   -
+
+Los tres thresholds configurados se cumplieron.
+
+
+2. SOBRE EL REQUISITO DE 20 TPS
+-------------------------------
+El resumen de k6 muestra http_reqs = 19,64/s. Ese numero es el PROMEDIO de
+los 210 s de la prueba e incluye las rampas de subida y de bajada. No es el
+TPS en estado estable, que fue de 25 TPS.
+
+Se comprueba asi:
+  - El perfil programado equivale a 4 125 iteraciones:
+        30 s x 7,5 + 30 s x 17,5 + 120 s x 25 + 30 s x 12,5 = 4 125
+    y k6 ejecuto 4 124. Es decir, el executor cumplio el plan completo.
+  - El resumen no contiene la metrica dropped_iterations, lo que indica que
+    k6 no dejo iteraciones sin lanzar por falta de VUs.
+  - 19,64 x 210 s = 4 124 iteraciones, igual al total medido.
+
+Conclusion: la carga se mantuvo a 25 TPS durante los 2 minutos de estado
+estable, superando el minimo de 20 TPS. El promedio de 19,64 es consecuencia
+de las rampas. Si se quisiera que el promedio global tambien superara 20,
+bastaria con acortar las rampas, alargar el estado estable o subir
+TARGET_TPS (por ejemplo, TARGET_TPS=30).
+
+
+3. HALLAZGOS
+------------
+  a) Servicio estable y rapido: p95 de 506 ms, tres veces por debajo del
+     limite de 1,5 s, y sin un solo error en 4 124 peticiones.
+  b) Latencia casi plana: minimo 317 ms, mediana 358 ms, p95 506 ms. La
+     diferencia entre mediana y p95 es de apenas 150 ms, lo que indica poca
+     dispersion y ausencia de saturacion a 25 TPS.
+  c) El maximo (1,10 s) es un valor aislado: el p99 es de 698 ms, asi que
+     menos del 1 % de las peticiones supero ese nivel. Aun asi queda por
+     debajo de 1,5 s.
+  d) La latencia es casi toda espera del servidor: http_req_waiting
+     promedia 379 ms de un total de 380 ms. Conexion, TLS y envio son
+     despreciables (decenas de microsegundos a pocos milisegundos), porque
+     k6 reutiliza las conexiones.
+  e) Sobra capacidad en el generador: solo se necesitaron 23 VUs de los 60
+     preasignados, sin llegar al maximo de 200.
+  f) Todos los usuarios del CSV autenticaron correctamente (status 201 y
+     token en la respuesta).
+
+
+4. CONSIDERACIONES Y LIMITACIONES
+---------------------------------
+  - FakeStoreAPI es un servicio publico de demostracion con datos simulados.
+    No es una API productiva, no esta bajo nuestro control y su rendimiento
+    depende de infraestructura compartida y de la red del momento. Los
+    resultados no son extrapolables a un servicio real.
+  - Con 5 usuarios reciclados, a 25 TPS cada usuario hace unos 5 logins por
+    segundo. No es un patron realista de usuarios; en un entorno real
+    convendria un volumen de datos mayor.
+  - Hay un solo escenario de 3,5 minutos y 2 minutos de estado estable. No
+    detecta degradaciones lentas (fugas de memoria, limites por hora). Para
+    eso haria falta una prueba de resistencia (soak).
+  - Se probo 25 TPS, no el limite. No se sabe cuanta carga mas aguanta el
+    servicio antes de degradarse.
+  - El criterio de tiempo se valido con el percentil 95, no con el maximo.
+    En esta ejecucion el maximo (1,10 s) tambien cumple, pero es un valor
+    puntual y puede variar entre ejecuciones.
+  - La prueba genera carga contra un servicio de terceros. Se mantuvo en un
+    volumen moderado (unas 4 000 peticiones) y no conviene subirlo mucho.
+  - El think time (0,1 s) no modifica los TPS al usar un executor de tasa
+    de llegada; solo aumenta los VUs necesarios.
+
+
+5. RECOMENDACIONES
+------------------
+  1. Ejecutar la prueba varias veces y en distintos horarios para confirmar
+     que el resultado es repetible y no depende de un momento favorable.
+  2. Hacer una prueba escalonada (30, 40, 50 TPS...) para encontrar el punto
+     de quiebre del servicio.
+  3. Si hay un SLA estricto de 1,5 s para el maximo, agregar un threshold
+     sobre max o sobre p(99).
+  4. Ampliar el CSV con mas usuarios y, si el servicio real lo permite,
+     validar tambien intentos con credenciales invalidas.
+  5. Integrar la ejecucion en CI con los thresholds como criterio de
+     aprobacion (k6 devuelve codigo 99 si alguno falla).
+
+
+6. CONCLUSION GENERAL
+---------------------
+El servicio de login de FakeStoreAPI cumplio todos los criterios del
+ejercicio: sostuvo 25 TPS (por encima de los 20 TPS exigidos) con un p95 de
+506 ms, un maximo de 1,10 s y 0 % de errores. En estas condiciones el
+servicio tiene un margen amplio frente a los limites de 1,5 s y 3 %. La
+principal precaucion es de lectura: el promedio de 19,64 TPS del resumen
+incluye las rampas y no refleja el TPS sostenido de 25.

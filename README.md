@@ -125,6 +125,23 @@ Como el enunciado no define criterios para este ejercicio, se aplican los del Ej
 
 El detalle de hallazgos, conclusiones y recomendaciones está en [InformeResultados.docx](Ejercicio2-analisis-resultados/InformeResultados.docx).
 
+## Pipeline de CI (GitHub Actions)
+
+El workflow [performance.yml](.github/workflows/performance.yml) vuelve a ejecutar la prueba del Ejercicio 1 en estos casos:
+
+- Cada push a `main`.
+- Cada Pull Request hacia `main`.
+- A mano, desde la pestaña **Actions** → **Pruebas de performance** → **Run workflow**.
+
+Pasos del pipeline:
+
+1. Instala k6 v2.3.0.
+2. Ejecuta `k6 run scripts/login-test.js` desde `Ejercicio1-k6-login`.
+3. Publica el resumen en la página de la ejecución.
+4. Guarda la carpeta `reports/` como artefacto descargable (`reportes-k6-login`).
+
+Si algún threshold falla, k6 termina con código 99 y la ejecución queda en rojo. Los reportes se guardan igual.
+
 ## Dónde se cumple cada entregable
 
 | Pedido en el enunciado | Dónde está |

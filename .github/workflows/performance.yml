@@ -1,0 +1,61 @@
+# Pipeline de performance: vuelve a ejecutar la prueba de carga del login (k6)
+# cada vez que hay cambios en el repositorio.
+name: Pruebas de performance
+
+on:
+  push:
+    branches: [main]      # cada push (o merge) a main
+  pull_request:
+    branches: [main]      # cada Pull Request hacia main
+  workflow_dispatch:      # ejecucion manual desde la pestaña Actions
+
+# Si llegan dos cambios seguidos, se cancela la ejecucion anterior para no
+# lanzar dos pruebas de carga a la vez contra fakestoreapi.com.
+concurrency:
+  group: performance-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  k6-login:
+    name: Ejercicio 1 - Carga del login
+    runs-on: ubuntu-latest
+    timeout-minutes: 15   # la prueba dura 3 min 30 s
+
+    # El script usa rutas relativas, igual que en local se ejecuta desde
+    # la carpeta del ejercicio.
+    defaults:
+      run:
+        working-directory: Ejercicio1-k6-login
+
+    steps:
+      - name: Descargar el repositorio
+        uses: actions/checkout@v4
+
+      - name: Instalar k6
+        uses: grafana/setup-k6-action@v1
+        with:
+          k6-version: '2.3.0'   # misma version usada en local (readme.txt)
+
+      - name: Ejecutar la prueba de carga
+        # Codigo 0 = se cumplieron los thresholds; 99 = alguno fallo y el
+        # pipeline queda en rojo.
+        env:
+          K6_WEB_DASHBOARD: 'true'
+          K6_WEB_DASHBOARD_EXPORT: reports/dashboard.html
+        run: k6 run scripts/login-test.js
+
+      - name: Publicar el resumen en la ejecucion
+        if: always()
+        run: |
+          echo '## Resultado de la prueba de carga' >> "$GITHUB_STEP_SUMMARY"
+          echo '```' >> "$GITHUB_STEP_SUMMARY"
+          cat reports/textSummary.txt >> "$GITHUB_STEP_SUMMARY"
+          echo '```' >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Guardar los reportes
+        # Se guardan aunque la prueba falle, para poder revisar que paso.
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: reportes-k6-login
+          path: Ejercicio1-k6-login/reports/
